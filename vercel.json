@@ -5,8 +5,8 @@
       "schedule": "0 9 * * 1"
     },
     {
-      "path": "/api/cron/deal-expiration",
-      "schedule": "0 */6 * * *"
+      "path": "/api/some-function",
+      "schedule": "0 0 * * *"
     }
   ]
 }
