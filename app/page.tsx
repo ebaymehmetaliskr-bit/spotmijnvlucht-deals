@@ -1,9 +1,6 @@
 // app/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
-import Header from '@/components/header';
-import Footer from '@/components/footer';
 import SearchFilterSection from '@/components/search-filter-section';
 import TestimonialsSection from '@/components/testimonials-section';
 import NewsletterSection from '@/components/newsletter-section';
@@ -28,6 +25,20 @@ interface FlightDeal {
   rating?: number;
   review_count?: number;
 }
+
+const featuredDeal = {
+  id: 1,
+  destination: 'Barcelona',
+  country: 'Spanje',
+  originalPrice: 299,
+  currentPrice: 199,
+  discount: 33,
+  airline: 'KLM',
+  seatsRemaining: 5,
+  image: '/barcelona-sagrada-familia-park-guell.png',
+  airlineLogo: '/klm-logo.png',
+  expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+};
 
 export default function HomePage() {
   const [deals, setDeals] = useState<FlightDeal[]>([]);
@@ -76,6 +87,7 @@ export default function HomePage() {
       <main>
         <SearchFilterSection />
         <DealOfTheDaySection />
+        <DealOfTheDaySection deal={featuredDeal} />
         <section className="container mx-auto px-4 md:px-8 py-12">
           <h2 className="text-3xl font-bold text-center mb-8 text-gray-800">Populaire Vliegdeals</h2>
           {isLoading && <p className="text-center py-10">Deals worden geladen...</p>}
