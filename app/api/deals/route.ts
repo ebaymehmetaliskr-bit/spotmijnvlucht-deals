@@ -1,73 +1,99 @@
-// app/api/deals/route.ts
-import { NextResponse } from "next/server";
-export const dynamic = "force-dynamic";
+import type { NextRequest } from "next/server"
+import { NextResponse } from "next/server"
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const from = searchParams.get("from") || "AMS";
-  const to = searchParams.get("to") || "IST";
-  // ... diğer parametreler ...
+import {
+  DEFAULT_DEALS_API_BASE_URL,
+  FALLBACK_DEAL,
+  normalizeDealsFromPayload,
+} from "@/lib/deals"
 
-  const token = process.env.TRAVELPAYOUTS_API_TOKEN;
-  
-  // ---- YENİ KONTROL 1: Token'ın gelip gelmediğini kontrol edelim ----
-  console.log("1. API Token Kontrolü:", token ? `Token'ın ilk 5 hanesi: ${token.substring(0, 5)}...` : "Token BULUNAMADI!");
+export const dynamic = "force-dynamic"
 
-  if (!token) {
-    return NextResponse.json({ error: "API token missing" }, { status: 500 });
+const DEFAULT_REMOTE_PATH = "/deals"
+
+const apiBaseUrl = (process.env.DEALS_API_BASE_URL || DEFAULT_DEALS_API_BASE_URL).replace(/\/$/, "")
+const apiPath = process.env.DEALS_API_PATH || DEFAULT_REMOTE_PATH
+const apiKey = process.env.DEALS_API_KEY || process.env.DEALS_API_TOKEN
+const apiAuthHeader = process.env.DEALS_API_AUTH_HEADER || "Authorization"
+const apiKeyPrefix = process.env.DEALS_API_KEY_PREFIX ?? "Bearer "
+
+function buildRemoteUrl(requestUrl: URL): string {
+  const remoteBase = apiPath.startsWith("http")
+    ? apiPath
+    : `${apiBaseUrl}${apiPath.startsWith("/") ? apiPath : `/${apiPath}`}`
+
+  const remoteUrl = new URL(remoteBase)
+
+  requestUrl.searchParams.forEach((value, key) => {
+    if (value !== null && value !== undefined) {
+      remoteUrl.searchParams.set(key, value)
+    }
+  })
+
+  return remoteUrl.toString()
+}
+
+function buildHeaders() {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
   }
 
-  try {
-    const url = new URL("https://api.travelpayouts.com/aviasales/v3/prices_for_dates");
-    url.searchParams.set("origin", from);
-    url.searchParams.set("destination", to);
-    url.searchParams.set("currency", "EUR");
-    url.searchParams.set("limit", "30");
-
-    // ---- YENİ KONTROL 2: Travelpayouts'a hangi URL ile istek attığımızı görelim ----
-    console.log("2. Travelpayouts'a gönderilen URL:", url.toString());
-
-    const res = await fetch(url.toString(), {
-      headers: { "X-Access-Token": token },
-      cache: "no-store",
-    });
-
-    // ---- YENİ KONTROL 3: Travelpayouts'tan gelen yanıtın durumunu görelim ----
-    console.log(`3. Travelpayouts Yanıt Durumu: ${res.status} ${res.statusText}`);
-
-    if (!res.ok) {
-        // Hata durumunda API'den gelen cevabı da loglayalım
-        const errorBody = await res.text();
-        console.error("Travelpayouts API Hata Detayı:", errorBody);
-        throw new Error(`Upstream error ${res.status}`);
+  if (apiKey) {
+    if (apiAuthHeader.toLowerCase() === "authorization") {
+      headers[apiAuthHeader] = `${apiKeyPrefix}${apiKey}`.trim()
+    } else {
+      headers[apiAuthHeader] = apiKey
     }
-    
-    const raw = await res.json();
+  }
 
-    // ---- YENİ KONTROL 4: Travelpayouts'tan gelen HAM VERİYİ görelim ----
-    // Gelen verinin yapısını anlamak için bu en önemli adımdır.
-    console.log("4. Travelpayouts'tan Gelen Ham Veri:", JSON.stringify(raw, null, 2));
+  return headers
+}
 
-    // normalize -> UI ile birebir alan isimleri
-    const items = (raw?.data || []).map((d: any, i: number) => ({
-      id: d.id ?? `${d.origin}-${d.destination}-${i}`,
-      origin: d.origin ?? from,
-      destination: d.destination ?? to,
-      airline: d.airline || d.gate || "",
-      price: d.price || d.value || 0,
-      depart_at: d.departure_at || d.depart_date || "",
-      return_at: d.return_at || d.return_date || "",
-      transfers: d.transfers ?? d.number_of_changes ?? 0,
-      link: d.link || d.deep_link || "",
-    }));
+export async function GET(req: NextRequest) {
+  const requestUrl = new URL(req.url)
+  const remoteUrl = buildRemoteUrl(requestUrl)
 
-    // ---- YENİ KONTROL 5: İşledikten sonraki veriyi görelim ----
-    console.log(`5. İşlenmiş ve Ön Yüze Gönderilmeye Hazır ${items.length} adet Fırsat Bulundu.`);
+  try {
+    const response = await fetch(remoteUrl, {
+      method: "GET",
+      headers: buildHeaders(),
+      cache: "no-store",
+    })
 
-    return NextResponse.json({ items });
-  } catch (e: any) {
-    // ---- YENİ KONTROL 6: Herhangi bir HATA olursa yakalayalım ----
-    console.error("6. CATCH BLOK HATASI:", e.message);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    const text = await response.text()
+    let payload: unknown
+
+    if (text) {
+      try {
+        payload = JSON.parse(text)
+      } catch (error) {
+        console.error("Deals API returned non-JSON payload", error)
+        payload = null
+      }
+    }
+
+    if (!response.ok) {
+      const message =
+        typeof payload === "object" && payload !== null && "error" in payload
+          ? String((payload as Record<string, unknown>).error)
+          : typeof payload === "object" && payload !== null && "message" in payload
+            ? String((payload as Record<string, unknown>).message)
+            : text || `Remote API error (${response.status})`
+
+      console.error("Deals API error:", response.status, message)
+      return NextResponse.json({ error: message }, { status: response.status })
+    }
+
+    const items = normalizeDealsFromPayload(payload)
+
+    if (items.length === 0) {
+      console.warn("Deals API returned no usable items. Falling back to default deal.")
+    }
+
+    return NextResponse.json({ items: items.length > 0 ? items : [FALLBACK_DEAL] })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Onbekende fout bij het ophalen van deals."
+    console.error("Failed to load deals:", message)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
