@@ -1,6 +1,9 @@
 // app/page.tsx
 'use client';
 
+import { useEffect, useState } from 'react';
+import Header from '@/components/header';
+import Footer from '@/components/footer';
 import SearchFilterSection from '@/components/search-filter-section';
 import TestimonialsSection from '@/components/testimonials-section';
 import NewsletterSection from '@/components/newsletter-section';
@@ -25,6 +28,32 @@ interface FlightDeal {
   rating?: number;
   review_count?: number;
 }
+
+type NormalizedDeal = Omit<FlightDeal, 'image'>;
+
+const isNormalizedDeal = (deal: unknown): deal is NormalizedDeal => {
+  if (!deal || typeof deal !== 'object') {
+    return false;
+  }
+
+  const candidate = deal as Record<string, unknown>;
+
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.origin === 'string' &&
+    typeof candidate.destination === 'string' &&
+    typeof candidate.airline === 'string' &&
+    typeof candidate.price === 'number' &&
+    typeof candidate.depart_at === 'string' &&
+    typeof candidate.return_at === 'string' &&
+    typeof candidate.link === 'string'
+  );
+};
+
+type DealsPayload = {
+  error?: string;
+  items?: unknown;
+};
 
 const featuredDeal = {
   id: 1,
@@ -56,13 +85,16 @@ export default function HomePage() {
           throw new Error('Deals konden niet worden geladen.');
         }
 
-        const data = await response.json();
-        
-        if (data.error) {
-            throw new Error(data.error);
+        const payload = (await response.json()) as DealsPayload;
+
+        if (payload.error) {
+            throw new Error(payload.error);
         }
 
-        const enrichedDeals = (data.items || []).map((deal: FlightDeal) => ({
+        const rawItems: unknown[] = Array.isArray(payload.items) ? payload.items : [];
+        const normalized: NormalizedDeal[] = rawItems.filter(isNormalizedDeal);
+
+        const enrichedDeals = normalized.map((deal) => ({
             ...deal,
             image: {
                 src: `https://source.unsplash.com/400x300/?${deal.destination},city`,
