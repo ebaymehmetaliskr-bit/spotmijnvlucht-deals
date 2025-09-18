@@ -32,25 +32,67 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Plus, Edit, Trash2, Search, Filter, Loader2 } from "lucide-react"
 import { toast } from "react-hot-toast"
+import type { AdminDealRecord, DealUpsertRequest } from "@/lib/types/deals"
 
-interface Deal {
-  id: string
+type Deal = AdminDealRecord
+
+interface DealFormState {
   destination: string
   country: string
   origin: string
-  current_price: number
-  original_price: number
-  discount_percentage: number
+  currentPrice: string
+  originalPrice: string
   airline: string
-  departure_date: string
-  return_date: string
-  deal_expiration: string
-  seats_available: number
-  affiliate_url: string
-  is_featured: boolean
-  is_active: boolean
-  created_at: string
-  updated_at: string
+  departureDate: string
+  returnDate: string
+  expirationDate: string
+  seatsAvailable: string
+  affiliateUrl: string
+  featured: boolean
+  active: boolean
+}
+
+const defaultFormState: DealFormState = {
+  destination: "",
+  country: "",
+  origin: "Amsterdam",
+  currentPrice: "",
+  originalPrice: "",
+  airline: "",
+  departureDate: "",
+  returnDate: "",
+  expirationDate: "",
+  seatsAvailable: "",
+  affiliateUrl: "",
+  featured: false,
+  active: true,
+}
+
+function createDefaultFormState(): DealFormState {
+  return { ...defaultFormState }
+}
+
+function toFormDate(value?: string | null) {
+  if (!value) {
+    return ""
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ""
+  }
+
+  return date.toISOString().split("T")[0] ?? ""
+}
+
+function parseNumber(value: string) {
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function parseInteger(value: string) {
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : 0
 }
 
 export default function DealsManagement() {
@@ -62,21 +104,7 @@ export default function DealsManagement() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [formData, setFormData] = useState({
-    destination: "",
-    country: "",
-    origin: "Amsterdam",
-    currentPrice: "",
-    originalPrice: "",
-    airline: "",
-    departureDate: "",
-    returnDate: "",
-    expirationDate: "",
-    seatsAvailable: "",
-    affiliateUrl: "",
-    featured: false,
-    active: true,
-  })
+  const [formData, setFormData] = useState<DealFormState>(() => createDefaultFormState())
 
   useEffect(() => {
     fetchDeals()
@@ -85,12 +113,30 @@ export default function DealsManagement() {
   const fetchDeals = async () => {
     try {
       setLoading(true)
-      const response = await fetch("/api/admin/deals")
-      if (response.ok) {
-        const dealsData = await response.json()
-        setDeals(dealsData)
+      const response = await fetch("/api/admin/deals", { cache: "no-store" })
+      let payload: unknown = null
+
+      try {
+        payload = await response.json()
+      } catch (error) {
+        payload = null
+      }
+
+      if (!response.ok) {
+        const message =
+          (payload && typeof (payload as any).error === "string" && (payload as any).error) ||
+          "Failed to fetch deals"
+        toast.error(message)
+        return
+      }
+
+      if (Array.isArray(payload)) {
+        setDeals(payload as Deal[])
+        setSelectedDeals([])
       } else {
-        toast.error("Failed to fetch deals")
+        console.warn("Unexpected admin deals payload", payload)
+        setDeals([])
+        toast.error("Ongeldig antwoord van de deals API")
       }
     } catch (error) {
       console.error("Error fetching deals:", error)
@@ -101,16 +147,22 @@ export default function DealsManagement() {
   }
 
   const filteredDeals = deals.filter((deal) => {
+    const destination = (deal.destination || "").toLowerCase()
+    const country = (deal.country || "").toLowerCase()
+    const airline = (deal.airline || "").toLowerCase()
+    const normalizedSearch = searchTerm.toLowerCase().trim()
+
     const matchesSearch =
-      deal.destination.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      deal.country.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      deal.airline.toLowerCase().includes(searchTerm.toLowerCase())
+      normalizedSearch.length === 0 ||
+      destination.includes(normalizedSearch) ||
+      country.includes(normalizedSearch) ||
+      airline.includes(normalizedSearch)
 
     const matchesFilter =
       filterStatus === "all" ||
-      (filterStatus === "active" && deal.is_active) ||
-      (filterStatus === "inactive" && !deal.is_active) ||
-      (filterStatus === "featured" && deal.is_featured)
+      (filterStatus === "active" && (deal.is_active ?? true)) ||
+      (filterStatus === "inactive" && !(deal.is_active ?? true)) ||
+      (filterStatus === "featured" && Boolean(deal.is_featured))
 
     return matchesSearch && matchesFilter
   })
@@ -136,61 +188,66 @@ export default function DealsManagement() {
     setSubmitting(true)
 
     try {
-      const dealData = {
-        ...formData,
-        currentPrice: Number.parseFloat(formData.currentPrice),
-        originalPrice: Number.parseFloat(formData.originalPrice),
-        seatsAvailable: Number.parseInt(formData.seatsAvailable),
+      const trimmedOrigin = formData.origin.trim()
+      const trimmedAffiliateUrl = formData.affiliateUrl.trim()
+
+      const payload: DealUpsertRequest = {
+        destination: formData.destination.trim(),
+        country: formData.country.trim(),
+        origin: trimmedOrigin || undefined,
+        currentPrice: parseNumber(formData.currentPrice),
+        originalPrice: parseNumber(formData.originalPrice),
+        airline: formData.airline.trim(),
+        departureDate: formData.departureDate || undefined,
+        returnDate: formData.returnDate || undefined,
+        expirationDate: formData.expirationDate || undefined,
+        seatsAvailable: parseInteger(formData.seatsAvailable),
+        affiliateUrl: trimmedAffiliateUrl || undefined,
+        featured: formData.featured,
+        active: formData.active,
       }
 
       if (editingDeal) {
-        // Update existing deal
-        const response = await fetch("/api/admin/deals", {
+        const response = await fetch(`/api/admin/deals/${editingDeal.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: editingDeal.id, ...dealData }),
+          body: JSON.stringify(payload),
         })
 
-        if (response.ok) {
-          toast.success("Deal updated successfully!")
-          setEditingDeal(null)
-          await fetchDeals()
-        } else {
-          toast.error("Failed to update deal")
+        const result = await response.json().catch(() => null)
+        if (!response.ok) {
+          const message =
+            (result && typeof (result as any).error === "string" && (result as any).error) ||
+            "Failed to update deal"
+          toast.error(message)
+          return
         }
+
+        toast.success("Deal updated successfully!")
+        setEditingDeal(null)
+        await fetchDeals()
       } else {
-        // Add new deal
         const response = await fetch("/api/admin/deals", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(dealData),
+          body: JSON.stringify(payload),
         })
 
-        if (response.ok) {
-          toast.success("Deal added successfully!")
-          setIsAddDialogOpen(false)
-          await fetchDeals()
-        } else {
-          toast.error("Failed to add deal")
+        const result = await response.json().catch(() => null)
+        if (!response.ok) {
+          const message =
+            (result && typeof (result as any).error === "string" && (result as any).error) ||
+            "Failed to add deal"
+          toast.error(message)
+          return
         }
+
+        toast.success("Deal added successfully!")
+        setIsAddDialogOpen(false)
+        await fetchDeals()
       }
 
-      // Reset form
-      setFormData({
-        destination: "",
-        country: "",
-        origin: "Amsterdam",
-        currentPrice: "",
-        originalPrice: "",
-        airline: "",
-        departureDate: "",
-        returnDate: "",
-        expirationDate: "",
-        seatsAvailable: "",
-        affiliateUrl: "",
-        featured: false,
-        active: true,
-      })
+      setFormData(createDefaultFormState())
     } catch (error) {
       console.error("Error saving deal:", error)
       toast.error("Failed to save deal")
@@ -201,35 +258,42 @@ export default function DealsManagement() {
 
   const handleEdit = (deal: Deal) => {
     setEditingDeal(deal)
+    setIsAddDialogOpen(false)
     setFormData({
-      destination: deal.destination,
-      country: deal.country,
-      origin: deal.origin,
-      currentPrice: deal.current_price.toString(),
-      originalPrice: deal.original_price.toString(),
-      airline: deal.airline,
-      departureDate: deal.departure_date,
-      returnDate: deal.return_date,
-      expirationDate: deal.deal_expiration.split("T")[0], // Convert to date format
-      seatsAvailable: deal.seats_available.toString(),
-      affiliateUrl: deal.affiliate_url,
-      featured: deal.is_featured,
-      active: deal.is_active,
+      destination: deal.destination || "",
+      country: deal.country || "",
+      origin: deal.origin || defaultFormState.origin,
+      currentPrice: (deal.current_price ?? 0).toString(),
+      originalPrice: (deal.original_price ?? 0).toString(),
+      airline: deal.airline || "",
+      departureDate: toFormDate(deal.departure_date),
+      returnDate: toFormDate(deal.return_date),
+      expirationDate: toFormDate(deal.deal_expiration),
+      seatsAvailable: (deal.seats_available ?? 0).toString(),
+      affiliateUrl: deal.affiliate_url || "",
+      featured: Boolean(deal.is_featured),
+      active: deal.is_active ?? true,
     })
   }
 
   const handleDelete = async (dealId: string) => {
     try {
-      const response = await fetch(`/api/admin/deals?id=${dealId}`, {
+      const response = await fetch(`/api/admin/deals/${dealId}`, {
         method: "DELETE",
       })
 
-      if (response.ok) {
-        toast.success("Deal deleted successfully!")
-        await fetchDeals()
-      } else {
-        toast.error("Failed to delete deal")
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        const message =
+          (result && typeof (result as any).error === "string" && (result as any).error) ||
+          "Failed to delete deal"
+        toast.error(message)
+        return
       }
+
+      toast.success("Deal deleted successfully!")
+      await fetchDeals()
     } catch (error) {
       console.error("Error deleting deal:", error)
       toast.error("Failed to delete deal")
@@ -237,38 +301,59 @@ export default function DealsManagement() {
   }
 
   const handleBulkAction = async (action: string) => {
+    if (selectedDeals.length === 0) {
+      return
+    }
+
     try {
-      // For now, handle bulk actions one by one
-      // In a real implementation, you'd want a bulk API endpoint
-      const promises = selectedDeals.map(async (dealId) => {
-        const deal = deals.find((d) => d.id === dealId)
-        if (!deal) return
+      await Promise.all(
+        selectedDeals.map(async (dealId) => {
+          if (action === "delete") {
+            const response = await fetch(`/api/admin/deals/${dealId}`, { method: "DELETE" })
+            if (!response.ok) {
+              const result = await response.json().catch(() => null)
+              const message =
+                (result && typeof (result as any).error === "string" && (result as any).error) ||
+                "Failed to delete deal"
+              throw new Error(message)
+            }
+            return
+          }
 
-        let updateData: any = {}
-        switch (action) {
-          case "activate":
-            updateData = { ...deal, active: true }
-            break
-          case "deactivate":
-            updateData = { ...deal, active: false }
-            break
-          case "feature":
-            updateData = { ...deal, featured: true }
-            break
-          case "delete":
-            return fetch(`/api/admin/deals?id=${dealId}`, { method: "DELETE" })
-        }
+          let payload: Partial<DealUpsertRequest> | null = null
+          switch (action) {
+            case "activate":
+              payload = { active: true }
+              break
+            case "deactivate":
+              payload = { active: false }
+              break
+            case "feature":
+              payload = { featured: true }
+              break
+            default:
+              payload = null
+          }
 
-        if (action !== "delete") {
-          return fetch("/api/admin/deals", {
+          if (!payload) {
+            return
+          }
+
+          const response = await fetch(`/api/admin/deals/${dealId}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: dealId, ...updateData }),
+            body: JSON.stringify(payload),
           })
-        }
-      })
 
-      await Promise.all(promises)
+          if (!response.ok) {
+            const result = await response.json().catch(() => null)
+            const message =
+              (result && typeof (result as any).error === "string" && (result as any).error) ||
+              "Failed to update deal"
+            throw new Error(message)
+          }
+        }),
+      )
 
       switch (action) {
         case "activate":
@@ -289,7 +374,8 @@ export default function DealsManagement() {
       await fetchDeals()
     } catch (error) {
       console.error("Error with bulk action:", error)
-      toast.error("Failed to perform bulk action")
+      const message = error instanceof Error ? error.message : "Failed to perform bulk action"
+      toast.error(message)
     }
   }
 
@@ -592,121 +678,133 @@ export default function DealsManagement() {
                 </tr>
               </thead>
               <tbody>
-                {filteredDeals.map((deal) => (
-                  <tr key={deal.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="p-2">
-                      <Checkbox
-                        checked={selectedDeals.includes(deal.id)}
-                        onCheckedChange={(checked) => handleSelectDeal(deal.id, checked as boolean)}
-                      />
-                    </td>
-                    <td className="p-2">
-                      <div>
-                        <div className="font-medium">{deal.destination}</div>
-                        <div className="text-sm text-gray-600 dark:text-gray-400">{deal.country}</div>
-                      </div>
-                    </td>
-                    <td className="p-2">
-                      <div>
-                        <div className="font-medium text-green-600">€{deal.current_price}</div>
-                        <div className="text-sm text-gray-500 line-through">€{deal.original_price}</div>
-                        <div className="text-xs text-blue-600">{deal.discount_percentage}% off</div>
-                      </div>
-                    </td>
-                    <td className="p-2">{deal.airline}</td>
-                    <td className="p-2">
-                      <div className="text-sm">
-                        <div>{deal.departure_date}</div>
-                        <div className="text-gray-600 dark:text-gray-400">to {deal.return_date}</div>
-                      </div>
-                    </td>
-                    <td className="p-2">
-                      <div className="flex flex-col space-y-1">
-                        <Badge variant={deal.is_active ? "default" : "secondary"}>
-                          {deal.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                        {deal.is_featured && <Badge variant="outline">Featured</Badge>}
-                      </div>
-                    </td>
-                    <td className="p-2">
-                      <div className="flex space-x-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button size="sm" variant="outline" onClick={() => handleEdit(deal)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Edit Deal</DialogTitle>
-                              <DialogDescription>Update the deal information</DialogDescription>
-                            </DialogHeader>
-                            {editingDeal && (
-                              <form onSubmit={handleFormSubmit} className="space-y-4">
-                                {/* Same form fields as add dialog */}
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <Label htmlFor="edit-destination">Destination</Label>
-                                    <Input
-                                      id="edit-destination"
-                                      value={formData.destination}
-                                      onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                                      required
-                                    />
+                {filteredDeals.map((deal) => {
+                  const currentPrice = Number.isFinite(deal.current_price) ? deal.current_price : 0
+                  const originalPrice = Number.isFinite(deal.original_price) ? deal.original_price : currentPrice
+                  const discount = Number.isFinite(deal.discount_percentage)
+                    ? Math.max(0, Math.round(deal.discount_percentage))
+                    : Math.max(0, Math.round(originalPrice > 0 ? ((originalPrice - currentPrice) / originalPrice) * 100 : 0))
+                  const departureDisplay = toFormDate(deal.departure_date) || "N.t.b."
+                  const returnDisplay = toFormDate(deal.return_date)
+
+                  return (
+                    <tr key={deal.id} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td className="p-2">
+                        <Checkbox
+                          checked={selectedDeals.includes(deal.id)}
+                          onCheckedChange={(checked) => handleSelectDeal(deal.id, checked as boolean)}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <div>
+                          <div className="font-medium">{deal.destination || "Onbekende bestemming"}</div>
+                          <div className="text-sm text-gray-600 dark:text-gray-400">{deal.country || ""}</div>
+                        </div>
+                      </td>
+                      <td className="p-2">
+                        <div>
+                          <div className="font-medium text-green-600">€{currentPrice}</div>
+                          <div className="text-sm text-gray-500 line-through">€{originalPrice}</div>
+                          <div className="text-xs text-blue-600">{discount}% off</div>
+                        </div>
+                      </td>
+                      <td className="p-2">{deal.airline || "Onbekend"}</td>
+                      <td className="p-2">
+                        <div className="text-sm">
+                          <div>{departureDisplay}</div>
+                          <div className="text-gray-600 dark:text-gray-400">
+                            {returnDisplay ? `tot ${returnDisplay}` : "Geen retourdatum"}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-2">
+                        <div className="flex flex-col space-y-1">
+                          <Badge variant={deal.is_active ? "default" : "secondary"}>
+                            {deal.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                          {deal.is_featured && <Badge variant="outline">Featured</Badge>}
+                        </div>
+                      </td>
+                      <td className="p-2">
+                        <div className="flex space-x-2">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button size="sm" variant="outline" onClick={() => handleEdit(deal)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                              <DialogHeader>
+                                <DialogTitle>Edit Deal</DialogTitle>
+                                <DialogDescription>Update the deal information</DialogDescription>
+                              </DialogHeader>
+                              {editingDeal && (
+                                <form onSubmit={handleFormSubmit} className="space-y-4">
+                                  {/* Same form fields as add dialog */}
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                      <Label htmlFor="edit-destination">Destination</Label>
+                                      <Input
+                                        id="edit-destination"
+                                        value={formData.destination}
+                                        onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                                        required
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="edit-country">Country</Label>
+                                      <Input
+                                        id="edit-country"
+                                        value={formData.country}
+                                        onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                                        required
+                                      />
+                                    </div>
                                   </div>
-                                  <div>
-                                    <Label htmlFor="edit-country">Country</Label>
-                                    <Input
-                                      id="edit-country"
-                                      value={formData.country}
-                                      onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                                      required
-                                    />
+                                  <div className="flex justify-end space-x-2">
+                                    <Button type="button" variant="outline" onClick={() => setEditingDeal(null)}>
+                                      Cancel
+                                    </Button>
+                                    <Button type="submit" disabled={submitting}>
+                                      {submitting ? (
+                                        <>
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          Updating...
+                                        </>
+                                      ) : (
+                                        "Update Deal"
+                                      )}
+                                    </Button>
                                   </div>
-                                </div>
-                                <div className="flex justify-end space-x-2">
-                                  <Button type="button" variant="outline" onClick={() => setEditingDeal(null)}>
-                                    Cancel
-                                  </Button>
-                                  <Button type="submit" disabled={submitting}>
-                                    {submitting ? (
-                                      <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Updating...
-                                      </>
-                                    ) : (
-                                      "Update Deal"
-                                    )}
-                                  </Button>
-                                </div>
-                              </form>
-                            )}
-                          </DialogContent>
-                        </Dialog>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="destructive">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Deal</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to delete the deal to {deal.destination}? This action cannot be
-                                undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDelete(deal.id)}>Delete</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                                </form>
+                              )}
+                            </DialogContent>
+                          </Dialog>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button size="sm" variant="destructive">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Deal</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete the deal to {deal.destination || "deze bestemming"}? This
+                                  action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDelete(deal.id)}>Delete</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

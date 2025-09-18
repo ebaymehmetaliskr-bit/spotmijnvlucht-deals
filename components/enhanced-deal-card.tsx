@@ -19,17 +19,17 @@ import {
 import { generateAffiliateUrl, trackDealClick, trackDealView, AFFILIATE_PARTNERS } from "@/lib/affiliate-tracking"
 import { ButtonLoadingState } from "@/components/loading-states"
 
-interface Deal {
+export interface EnhancedDealCardData {
   id: number
   destination: string
-  country: string
+  country?: string
   originalPrice: number
   currentPrice: number
   discount: number
   airline: string
   seatsRemaining: number
-  image: string
-  airlineLogo: string
+  image?: string
+  airlineLogo?: string
   expiresAt: Date
   partner?: keyof typeof AFFILIATE_PARTNERS
   rating?: number
@@ -144,7 +144,7 @@ function getCTAVariant(dealId: number, savings: number, isUrgent: boolean) {
 }
 
 interface EnhancedDealCardProps {
-  deal: Deal
+  deal: EnhancedDealCardData
 }
 
 export default function EnhancedDealCard({ deal }: EnhancedDealCardProps) {
@@ -188,8 +188,8 @@ export default function EnhancedDealCard({ deal }: EnhancedDealCardProps) {
     <Card className="group overflow-hidden hover:shadow-2xl dark:hover:shadow-2xl dark:hover:shadow-blue-500/20 transition-all duration-500 hover:-translate-y-3 hover:rotate-1 bg-white dark:bg-gray-800 border-0 shadow-lg relative animate-fadeIn swipe-item touch-friendly">
       <div className="relative">
         <img
-          src={deal.image || "/placeholder.svg"}
-          alt={`${deal.destination}, ${deal.country}`}
+          src={deal.image || "/placeholder.jpg"}
+          alt={deal.country ? `${deal.destination}, ${deal.country}` : deal.destination}
           className="w-full h-48 object-cover group-hover:scale-110 transition-transform duration-500"
         />
 
@@ -212,7 +212,7 @@ export default function EnhancedDealCard({ deal }: EnhancedDealCardProps) {
 
         {/* Airline Logo */}
         <div className="absolute bottom-3 left-3 bg-white dark:bg-gray-800 rounded-full p-2 shadow-md transition-colors duration-300">
-          <img src={deal.airlineLogo || "/placeholder.svg"} alt={deal.airline} className="h-6 w-6 object-contain" />
+          <img src={deal.airlineLogo || "/placeholder-logo.png"} alt={deal.airline} className="h-6 w-6 object-contain" />
         </div>
 
         <div className="absolute bottom-3 right-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-full px-3 py-1.5 shadow-lg border border-gray-200 dark:border-gray-600 transition-colors duration-300">
@@ -227,7 +227,7 @@ export default function EnhancedDealCard({ deal }: EnhancedDealCardProps) {
         <div className="flex items-center gap-2 mb-3">
           <MapPin className="h-4 w-4 text-gray-500 dark:text-gray-400" />
           <h3 className="text-xl font-bold text-gray-900 dark:text-white">{deal.destination}</h3>
-          <span className="text-gray-500 dark:text-gray-400">{deal.country}</span>
+          <span className="text-gray-500 dark:text-gray-400">{deal.country ?? ""}</span>
 
           {deal.rating && (
             <div className="flex items-center gap-1 ml-auto">

@@ -1,0 +1,26 @@
+import { z } from "zod"
+
+export const dealUpsertSchema = z.object({
+  destination: z.string().min(1, "Bestemming is verplicht"),
+  country: z.string().min(1, "Land is verplicht"),
+  origin: z.string().optional(),
+  currentPrice: z.coerce.number().nonnegative(),
+  originalPrice: z.coerce.number().nonnegative(),
+  airline: z.string().min(1, "Luchtvaartmaatschappij is verplicht"),
+  departureDate: z.string().optional(),
+  returnDate: z.string().optional(),
+  expirationDate: z.string().optional(),
+  seatsAvailable: z.coerce.number().int().nonnegative(),
+  affiliateUrl: z.string().optional(),
+  imageUrl: z.string().optional(),
+  airlineLogoUrl: z.string().optional(),
+  featured: z.boolean().optional(),
+  active: z.boolean().optional(),
+  rating: z.coerce.number().optional(),
+  reviewCount: z.coerce.number().optional(),
+  competitorPrice: z.coerce.number().optional(),
+  bookingsToday: z.coerce.number().optional(),
+  category: z.string().optional(),
+  partner: z.string().optional(),
+  isDealOfDay: z.boolean().optional(),
+})
