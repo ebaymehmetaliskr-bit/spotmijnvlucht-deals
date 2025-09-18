@@ -5,22 +5,22 @@ import { Star, Clock, Users, Plane } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { generateAffiliateUrl, trackDealClick } from "@/lib/affiliate-tracking"
 
-interface Deal {
+export interface DealOfTheDayDeal {
   id: number
   destination: string
-  country: string
+  country?: string
   originalPrice: number
   currentPrice: number
   discount: number
   airline: string
   seatsRemaining: number
-  image: string
-  airlineLogo: string
+  image?: string
+  airlineLogo?: string
   expiresAt: Date
 }
 
 interface DealOfTheDaySectionProps {
-  deal: Deal
+  deal: DealOfTheDayDeal
 }
 
 export default function DealOfTheDaySection({ deal }: DealOfTheDaySectionProps) {
@@ -80,7 +80,7 @@ export default function DealOfTheDaySection({ deal }: DealOfTheDaySectionProps) 
             {/* Image Section */}
             <div className="relative h-64 lg:h-auto">
               <img
-                src={deal.image || "/placeholder.svg"}
+                src={deal.image || "/placeholder.jpg"}
                 alt={deal.destination}
                 className="w-full h-full object-cover"
               />
@@ -91,7 +91,7 @@ export default function DealOfTheDaySection({ deal }: DealOfTheDaySectionProps) 
               </div>
               <div className="absolute top-4 right-4">
                 <img
-                  src={deal.airlineLogo || "/placeholder.svg"}
+                  src={deal.airlineLogo || "/placeholder-logo.png"}
                   alt={deal.airline}
                   className="h-8 w-auto bg-white rounded p-1"
                 />
@@ -103,7 +103,7 @@ export default function DealOfTheDaySection({ deal }: DealOfTheDaySectionProps) 
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-2xl font-bold text-gray-900">{deal.destination}</h3>
-                  <p className="text-gray-600">{deal.country}</p>
+                  <p className="text-gray-600">{deal.country ?? ""}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-gray-500 line-through">€{deal.originalPrice}</p>
